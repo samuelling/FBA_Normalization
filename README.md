@@ -53,6 +53,11 @@ eccentricity x SF maps in a struct.
 - `export_matlab.js` - generates the MATLAB file.
 - `app.js` - controls, plots and maps.
 - `index.html` - page and styles.
+- `bundle.js` - `node bundle.js` writes `standalone.html`, a single-file copy with the
+  scripts inlined.
+
+The script tags in `index.html` carry a `?v=` number. Bump it when a script changes,
+so browsers do not pair a new page with a cached older script.
 
 ## Defaults
 
