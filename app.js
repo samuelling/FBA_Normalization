@@ -48,7 +48,8 @@
       { id: 'pbw', label: 'SF bandwidth', min: 0, max: 2, step: 0.05, def: 0, fmt: function (v) { return v === 0 ? 'grating' : v.toFixed(2) + ' oct'; } }
     ],
     voxel: [
-      { id: 'sigVox', label: 'SF band the voxel reads out', min: 0.2, max: 2.5, step: 0.05, def: 1.5, fmt: function (v) { return v.toFixed(2) + ' oct'; } }
+      { id: 'bwFovea', label: 'SF bandwidth at the fovea', min: 2, max: 8, step: 0.1, def: 3.0, fmt: function (v) { return v.toFixed(1) + ' oct'; } },
+      { id: 'bw9', label: 'SF bandwidth at 9\u00b0', min: 2, max: 8, step: 0.1, def: 4.3, fmt: function (v) { return v.toFixed(1) + ' oct'; } }
     ],
     norm: [
       { id: 'sigma', label: 'Semi-saturation σ', min: 0.02, max: 0.5, step: 0.01, def: 0.1, fmt: fPct },
@@ -106,6 +107,9 @@
     });
   }
   function stim() { return { e: V.pe, f: V.pf, c: V.pc, size: V.psize, bw: V.pbw }; }
+  function modelParams() {
+    return { gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, bwFovea: V.bwFovea, bw9: V.bw9, e2: V.e2, a: V.a, b: V.b };
+  }
 
   // ---------- model state ----------
   var model = null, fast = null, sweep = null;
@@ -727,7 +731,7 @@
     L.push('# FBA normalization model predictions');
     L.push('# attention: gain ' + V.gain + ', attended ' + V.fAtt.toFixed(3) + ' cpd at ' + V.eAtt + ' deg, SF width ' + V.sigAf + ' oct, cortical rule ' + S.cortRule);
     L.push('# probe: ' + st.f.toFixed(3) + ' cpd at ' + st.e + ' deg, contrast ' + st.c.toFixed(4) + ', size ' + (st.size >= F.FULL_FIELD ? 'full field' : st.size + ' deg') + ', SF bandwidth ' + st.bw + ' oct');
-    L.push('# model: sigma ' + V.sigma + ', n ' + V.n + ', pool ' + V.sigSf + ' oct x ' + V.sigSx + ' mm, unit tuning ' + V.sigT + ' oct, pool pref spread ' + V.sigPop + ' oct, voxel SF band ' + V.sigVox + ' oct, e2 ' + V.e2 + ', pref period ' + V.a + 'e+' + V.b);
+    L.push('# model: sigma ' + V.sigma + ', n ' + V.n + ', pool ' + V.sigSf + ' oct x ' + V.sigSx + ' mm, unit tuning ' + V.sigT + ' oct, pool pref spread ' + V.sigPop + ' oct, voxel SF bandwidth ' + V.bwFovea + ' oct at fovea to ' + V.bw9 + ' oct at 9 deg (FWHM), e2 ' + V.e2 + ', pref period ' + V.a + 'e+' + V.b);
     L.push(''); L.push('[naka_rushton_fit]'); L.push('condition,c50,rmax,n');
     MODELS.forEach(function (m) { var f = fast.res[m].fit; L.push(m + ',' + f.c50.toFixed(5) + ',' + f.rmax.toFixed(5) + ',' + f.n.toFixed(4)); });
     L.push(''); L.push('[contrast_response_at_probe]'); L.push('contrast,none,stim,cort');
@@ -751,6 +755,58 @@
   }
   function refreshData() { if (!$('datapanel').hidden) $('data-text').value = buildCSV(); }
 
+  // ---------- MATLAB export ----------
+  function matlabCode() {
+    return window.FBAExport.matlab({ P: modelParams(), probe: stim(), measure: S.measure, fullField: F.FULL_FIELD });
+  }
+  function refreshMatlab() { if (!$('mlpanel').hidden) $('ml-text').value = matlabCode(); }
+  var saver = null;
+  function initMatlab() {
+    var btn = $('ml-download'), status = $('ml-status'), topLevel = false;
+    try { topLevel = window.self === window.top; } catch (err) { topLevel = false; }
+    if (topLevel) {
+      // Opened directly (GitHub Pages, local file): an ordinary download of the .m file works.
+      btn.hidden = false; btn.textContent = 'Download .m';
+      btn.addEventListener('click', function () {
+        var url = URL.createObjectURL(new Blob([matlabCode()], { type: 'text/plain' })), a = document.createElement('a');
+        a.href = url; a.download = window.FBAExport.FILE_NAME; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+        status.textContent = 'Saved as ' + window.FBAExport.FILE_NAME + '.';
+      });
+    } else if (window.claude && typeof window.claude.use === 'function') {
+      // Inside Claude the page cannot download by itself and .m is not an accepted type,
+      // so the file is offered inside a .zip through the downloads capability.
+      window.claude.use('downloads').then(function (d) {
+        if (!d) return;
+        saver = d; btn.hidden = false; btn.textContent = 'Download .zip';
+        btn.addEventListener('click', function () {
+          var bytes = window.FBAExport.zipBytes(window.FBAExport.FILE_NAME, matlabCode());
+          saver.save({ filename: 'fba_normalization_sim.zip', data: new Blob([bytes]) }).then(function () {
+            status.textContent = 'Saved. Unzip it to get ' + window.FBAExport.FILE_NAME + '.';
+          }, function (e) {
+            status.textContent = e && e.code === 'declined' ? 'Download cancelled.' : 'Download is not available here. Use Copy code and save it as ' + window.FBAExport.FILE_NAME + '.';
+          });
+        });
+      }, function () {});
+    }
+  }
+  function bindPanel(toggleId, panelId, showLabel, hideLabel, refresh) {
+    $(toggleId).addEventListener('click', function () {
+      var p = $(panelId); p.hidden = !p.hidden;
+      this.setAttribute('aria-expanded', String(!p.hidden));
+      this.textContent = p.hidden ? showLabel : hideLabel;
+      refresh();
+    });
+  }
+  function bindCopy(btnId, textId, statusId) {
+    $(btnId).addEventListener('click', function () {
+      var ta = $(textId), status = $(statusId);
+      function fallback() { ta.focus(); ta.select(); status.textContent = 'Copy was blocked here. The text is selected: press Ctrl or Cmd + C.'; }
+      try { navigator.clipboard.writeText(ta.value).then(function () { status.textContent = 'Copied.'; }, fallback); }
+      catch (err) { fallback(); }
+    });
+  }
+
   // ---------- update loop ----------
   var raf = 0, sweepTimer = 0, lastSweepMs = 0;
   function request() { if (!raf) raf = requestAnimationFrame(update); }
@@ -771,8 +827,10 @@
   function update() {
     raf = 0;
     readControls();
-    model = F.create({ gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, sigVox: V.sigVox, e2: V.e2, a: V.a, b: V.b });
+    model = F.create(modelParams());
     fast = computeFast();
+    $('vox-note').textContent = 'At the probe\u2019s ' + fDeg(V.pe) + ': bandwidth ' + model.targetBandwidth(V.pe).toFixed(1) + ' oct, so the voxel reads out a band of ' + model.voxelBandAt(V.pe).toFixed(2) + ' oct sd. The pool\u2019s spread is ' + V.sigPop.toFixed(2) + '.';
+    refreshMatlab();
     renderTiles(); renderCRF(); renderTune(); renderPSFT();
     if (S.view !== 'sweep') renderMaps();
     if (sweepTimer) { clearTimeout(sweepTimer); sweepTimer = 0; }
@@ -787,19 +845,11 @@
   function init() {
     tip = $('tip');
     buildControls();
-    $('data-toggle').addEventListener('click', function () {
-      var p = $('datapanel'); p.hidden = !p.hidden;
-      this.setAttribute('aria-expanded', String(!p.hidden));
-      this.textContent = p.hidden ? 'Data table' : 'Hide data table';
-      refreshData();
-    });
-    $('data-copy').addEventListener('click', function () {
-      var ta = $('data-text'), status = $('data-status');
-      function fallback() { ta.focus(); ta.select(); status.textContent = 'Copy was blocked here. The text is selected: press Ctrl or Cmd + C.'; }
-      try {
-        navigator.clipboard.writeText(ta.value).then(function () { status.textContent = 'Copied.'; }, fallback);
-      } catch (err) { fallback(); }
-    });
+    bindPanel('data-toggle', 'datapanel', 'Data table', 'Hide data table', refreshData);
+    bindCopy('data-copy', 'data-text', 'data-status');
+    bindPanel('ml-toggle', 'mlpanel', 'MATLAB code', 'Hide MATLAB code', refreshMatlab);
+    bindCopy('ml-copy', 'ml-text', 'ml-status');
+    initMatlab();
     var rz = 0;
     if (window.ResizeObserver) new ResizeObserver(function () { clearTimeout(rz); rz = setTimeout(renderAll, 80); }).observe(document.querySelector('.main'));
     function themeChanged() { T = null; renderAll(); }

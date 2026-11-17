@@ -31,6 +31,8 @@
   var M_SCALE = 17.3;        // mm; M(e) = 17.3 / (e + e2)  (Horton & Hoyt, 1991)
   var SIG_RF = 1.0;          // mm; receptive-field sd on cortex
   var FULL_FIELD = 24;       // probe sizes at or above this fill the meridian
+  var BW_CONTRAST = 0.9;     // contrast at which the voxel SF bandwidth is specified
+  var BW_ANCHORS = [0.25, 1, 2, 3, 4.5, 6, 7.5, 9, 10.5, 12];   // deg; where the voxel band is solved
 
   var DEFAULTS = {
     // attention
@@ -47,11 +49,15 @@
     // population
     sigT: 0.6,       // single-unit SF tuning width, octaves (sd)
     sigPop: 1.5,     // spread of preferred SFs at one eccentricity, octaves (sd); feeds the pool
-    sigVox: 1.5,     // SF band a voxel reads out, centred on the local preferred SF, octaves (sd)
+    bwFovea: 3.0,    // voxel SF tuning bandwidth at the fovea, octaves (full width at half max)
+    bw9: 4.3,        // the same at 9 deg; linear in eccentricity (Aghajari, Vinke & Ling, 2020)
+    sigVox: null,    // optional override: a fixed SF band for the voxel readout, octaves (sd)
     e2: 0.75,        // deg; M(e) = 17.3 / (e + e2)
     a: 0.12,         // preferred period (deg) = a * e + b  (Broderick et al., 2022)
     b: 0.35
   };
+
+  var bandCache = { key: null, val: null };
 
   function erf(x) {
     var s = x < 0 ? -1 : 1;
@@ -94,16 +100,13 @@
     }
 
     // Density of units over preferred SF at each eccentricity (unit integral per column).
-    // w weights the normalization pool. wv is what a voxel at that location reads out:
-    // the same centre, but its own width, so the readout can be narrower than the pool.
-    var w = new Float64Array(NX * NF), wv = new Float64Array(NX * NF);
-    var wn = 1 / (p.sigPop * Math.sqrt(2 * Math.PI)), wvn = 1 / (p.sigVox * Math.sqrt(2 * Math.PI));
+    // w weights the normalization pool. wv (filled in below, once the voxel band is
+    // known) is what a voxel at that location reads out: same centre, its own width.
+    var w = new Float64Array(NX * NF), wv = new Float64Array(NX * NF), lfPref = new Float64Array(NX);
+    var wn = 1 / (p.sigPop * Math.sqrt(2 * Math.PI));
     for (i = 0; i < NX; i++) {
-      var c0 = Math.log2(prefSF(es[i]));
-      for (k = 0; k < NF; k++) {
-        w[i * NF + k] = wn * Math.exp(-0.5 * Math.pow((lfs[k] - c0) / p.sigPop, 2));
-        wv[i * NF + k] = wvn * Math.exp(-0.5 * Math.pow((lfs[k] - c0) / p.sigVox, 2));
-      }
+      lfPref[i] = Math.log2(prefSF(es[i]));
+      for (k = 0; k < NF; k++) w[i * NF + k] = wn * Math.exp(-0.5 * Math.pow((lfs[k] - lfPref[i]) / p.sigPop, 2));
     }
 
     // Attention fields.
@@ -199,6 +202,73 @@
       sRef = s > 0 ? s : 1;
     })();
 
+    // Voxel readout band. What is measured is a voxel's SF tuning bandwidth: the full
+    // width at half max of its response to full-field narrowband stimuli at BW_CONTRAST.
+    // The band of units the voxel reads out (sd, octaves) is solved from that bandwidth
+    // at a few anchor eccentricities and interpolated between them.
+    var sigVoxCol = new Float64Array(NX);
+    function tuningMatrix(ix) {          // R[j*NF+k]: response of unit k to a probe at lfs[j]
+      var ones = new Float64Array(NX).fill(1), col = columnAt('none', ix, ones);
+      var R = new Float64Array(NF * NF), cn = Math.pow(BW_CONTRAST, p.n), h = Kf.h;
+      var k0s = new Int32Array(NF), k1s = new Int32Array(NF);
+      for (var j = 0; j < NF; j++) {
+        var sf = sfProfile(1, Math.pow(2, lfs[j]), 0), t = sf.t;
+        k0s[j] = sf.k0; k1s[j] = sf.k1;
+        for (var k = sf.k0; k <= sf.k1; k++) {
+          var s = 0;
+          for (var kk = Math.max(sf.k0, k - h); kk <= Math.min(sf.k1, k + h); kk++) s += Kf.k[kk - k + h] * t[kk] * col.G[kk];
+          R[j * NF + k] = t[k] * cn / (s / sRef * cn + sigN);
+        }
+      }
+      return { R: R, k0: k0s, k1: k1s };
+    }
+    function voxelBandwidth(T, c0, sv) {  // full width at half max of the pooled tuning, octaves
+      var wk = new Float64Array(NF), pj = new Float64Array(NF), j, k, ip = 0;
+      for (k = 0; k < NF; k++) wk[k] = Math.exp(-0.5 * Math.pow((lfs[k] - c0) / sv, 2));
+      for (j = 0; j < NF; j++) {
+        var s = 0, o = j * NF;
+        for (k = T.k0[j]; k <= T.k1[j]; k++) s += wk[k] * T.R[o + k];
+        pj[j] = s;
+        if (s > pj[ip]) ip = j;
+      }
+      var half = pj[ip] / 2, lo = NaN, hi = NaN;
+      for (j = ip; j > 0; j--) if (pj[j - 1] < half) { lo = lfs[j] - (pj[j] - half) / (pj[j] - pj[j - 1]) * DLF; break; }
+      for (j = ip; j < NF - 1; j++) if (pj[j + 1] < half) { hi = lfs[j] + (pj[j] - half) / (pj[j] - pj[j + 1]) * DLF; break; }
+      return (isNaN(lo) || isNaN(hi)) ? Infinity : hi - lo;
+    }
+    function targetBandwidth(e) { return Math.max(1, p.bwFovea + (p.bw9 - p.bwFovea) * e / 9); }
+    // The solution depends only on the population and normalization parameters, not on
+    // attention or the probe, so it is reused while those stay the same.
+    var bandKey = [p.bwFovea, p.bw9, p.sigPop, p.sigT, p.sigSf, p.sigSx, p.sigma, p.n, p.e2, p.a, p.b].join('|');
+    if (p.sigVox > 0) {
+      for (i = 0; i < NX; i++) sigVoxCol[i] = p.sigVox;
+    } else if (bandCache.key === bandKey) {
+      sigVoxCol.set(bandCache.val);
+    } else {
+      var svA = BW_ANCHORS.map(function (ea) {
+        // The band is searched between a single-unit-like 0.15 octaves and the spread of the
+        // local population (the voxel cannot read out units that are not there). In that range
+        // the bandwidth grows monotonically with the band.
+        var ix = columnIndex(ea), R = tuningMatrix(ix), target = targetBandwidth(ea), lo = 0.15, hi = Math.max(0.15, p.sigPop);
+        for (var it = 0; it < 30; it++) {
+          var mid = 0.5 * (lo + hi);
+          if (voxelBandwidth(R, lfPref[ix], mid) > target) hi = mid; else lo = mid;
+        }
+        return 0.5 * (lo + hi);
+      });
+      for (i = 0; i < NX; i++) {
+        var ec = Math.min(Math.max(es[i], BW_ANCHORS[0]), BW_ANCHORS[BW_ANCHORS.length - 1]), a = 0;
+        while (a < BW_ANCHORS.length - 2 && ec > BW_ANCHORS[a + 1]) a++;
+        sigVoxCol[i] = svA[a] + (ec - BW_ANCHORS[a]) / (BW_ANCHORS[a + 1] - BW_ANCHORS[a]) * (svA[a + 1] - svA[a]);
+      }
+      bandCache = { key: bandKey, val: new Float64Array(sigVoxCol) };
+    }
+    for (i = 0; i < NX; i++) {
+      var nv = 1 / (sigVoxCol[i] * Math.sqrt(2 * Math.PI));
+      for (k = 0; k < NF; k++) wv[i * NF + k] = nv * Math.exp(-0.5 * Math.pow((lfs[k] - lfPref[i]) / sigVoxCol[i], 2));
+    }
+    function voxelBandAt(e) { return sigVoxCol[columnIndex(e)]; }
+
     // Contrast-free description of the units a probe drives. Both the drive and the
     // suppressive pool scale with c^n, so each unit is an exact Naka-Rushton function
     // of contrast: r_k(c) = num_k c^n / (alpha_k c^n + sigma^n).
@@ -261,7 +331,8 @@
       xOf: xOf, eOf: eOf, prefSF: prefSF, ridgeSF: ridgeSF,
       columnIndex: columnIndex, probeColumn: probeColumn, respond: respond,
       sfProfile: sfProfile, probeResponse: probeResponse, image: image,
-      units: units, pooledAt: pooledAt, crf: crf
+      units: units, pooledAt: pooledAt, crf: crf,
+      sigVoxCol: sigVoxCol, voxelBandAt: voxelBandAt, targetBandwidth: targetBandwidth
     };
   }
 
@@ -323,6 +394,6 @@
   return {
     create: create, DEFAULTS: DEFAULTS, fitNakaRushton: fitNakaRushton, nakaRushton: nakaRushton,
     E_MAX: E_MAX, NX: NX, NF: NF, LF_MIN: LF_MIN, LF_MAX: LF_MAX, DLF: DLF,
-    M_SCALE: M_SCALE, FULL_FIELD: FULL_FIELD
+    M_SCALE: M_SCALE, FULL_FIELD: FULL_FIELD, BW_CONTRAST: BW_CONTRAST
   };
 });

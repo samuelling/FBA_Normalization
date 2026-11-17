@@ -30,17 +30,27 @@ contrasts (1 to 100%) and fitted with a Naka-Rushton function. Attention effects
 reported as the change in the estimated c50 (contrast gain), Rmax (response gain),
 or the response at the probe contrast.
 
-The voxel's weights are a band in SF centred on the local preferred SF (`sigVox`),
-set separately from the spread of preferred SFs that feeds the suppressive pool
-(`sigPop`). With the two equal, the voxel reads out the population that normalizes
-it and attention appears as contrast gain in both models. With a narrower voxel
-band, Rmax changes too, with opposite sign in the two models away from the attended
-eccentricity.
+The voxel's weights are a band in SF centred on the local preferred SF. Its width
+is solved at each eccentricity so that the model voxel's SF tuning (full-field
+narrowband stimuli, 90% contrast) has the measured bandwidth: by default 3 octaves
+FWHM at the fovea rising linearly to 4.3 at 9 deg, after Aghajari, Vinke & Ling
+(2020). The resulting band (about 0.9 to 1.1 octaves sd) is narrower than the spread
+of preferred SFs feeding the suppressive pool (`sigPop`, 1.5 octaves sd), so Rmax can
+change a little with attention as well as c50.
+
+## MATLAB export
+
+The "MATLAB code" button writes the current simulation as one commented function
+file, `fba_normalization_sim.m` (base MATLAB R2016b or later, no toolboxes; also
+runs in GNU Octave). It is a port of `model.js` with the dashboard's settings filled
+in, and returns the CRFs, Naka-Rushton estimates, SF tuning curves and
+eccentricity x SF maps in a struct.
 
 ## Files
 
 - `model.js` - the model and the Naka-Rushton fit. No DOM; also loads in node
   (`const F = require('./model.js'); const m = F.create({gain: 2});`).
+- `export_matlab.js` - generates the MATLAB file.
 - `app.js` - controls, plots and maps.
 - `index.html` - page and styles.
 

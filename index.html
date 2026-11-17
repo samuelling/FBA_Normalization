@@ -213,6 +213,8 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
 .notes a { color: inherit; }
 .datapanel { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
 .datapanel[hidden] { display: none; }
+.datapanel .hint { margin: 0; }
+#ml-text { height: 420px; white-space: pre; }
 .datapanel textarea { width: 100%; height: 220px; resize: vertical; font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .datapanel .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .datapanel .status { font-size: 12.5px; color: var(--ink-2); }
@@ -276,8 +278,9 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
       </section>
       <section class="card panel">
         <h2>Voxel readout</h2>
-        <p class="hint">Centred on the local preferred SF. At or above the pool&rsquo;s spread, the voxel reads out the population that normalizes it; narrower, it reads out a sub-band.</p>
+        <p class="hint">Full width at half max of a voxel&rsquo;s SF tuning, for full-field narrowband stimuli at 90% contrast, changing linearly with eccentricity (Aghajari, Vinke &amp; Ling, 2020). The band of units the voxel reads out is solved from it.</p>
         <div id="grp-voxel"></div>
+        <p class="hint" id="vox-note"></p>
       </section>
       <details class="card panel" id="adv">
         <summary><h2>Normalization and cortex</h2></summary>
@@ -307,11 +310,17 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
         </div>
         <span class="spacer"></span>
         <button type="button" class="btn" id="data-toggle" aria-expanded="false" aria-controls="datapanel">Data table</button>
+        <button type="button" class="btn" id="ml-toggle" aria-expanded="false" aria-controls="mlpanel">MATLAB code</button>
       </section>
 
       <section class="card datapanel" id="datapanel" hidden>
         <div class="row"><button type="button" class="btn" id="data-copy">Copy CSV</button><span class="status" id="data-status">Everything plotted below, for the current settings.</span></div>
         <textarea id="data-text" readonly aria-label="Predictions as CSV"></textarea>
+      </section>
+
+      <section class="card datapanel" id="mlpanel" hidden>
+        <div class="row"><button type="button" class="btn" id="ml-copy">Copy code</button><button type="button" class="btn" id="ml-download" hidden>Download</button><span class="status" id="ml-status">This simulation with the current settings, as one MATLAB file. Save it as fba_normalization_sim.m. Base MATLAB R2016b or later, no toolboxes.</span></div>
+        <textarea id="ml-text" readonly aria-label="MATLAB code" spellcheck="false" wrap="off"></textarea>
       </section>
 
       <section class="tiles" aria-label="Predictions for the current probe">
@@ -417,7 +426,7 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
         <h2>What the simulation assumes</h2>
         <p><b>Neural image.</b> Units are laid out by cortical distance along one meridian and by preferred spatial frequency. Receptive fields (1 mm sd) and the suppressive pool have a fixed size in millimetres of cortex, so both grow with eccentricity in degrees. At each eccentricity, preferred frequencies are spread around the local peak p(e).</p>
         <p><b>Attention fields.</b> Both are spatially global and pass through the attended grating. Stimulus-based puts the gain ridge at the attended cpd at every eccentricity. Cortical-based rescales it, either with cortical magnification (constant cycles per millimetre) or with the local preferred frequency.</p>
-        <p><b>Measurement.</b> The voxel is a weighted sum of the units at the probe&rsquo;s cortical location. Its weights are a band in SF centred on the local preferred SF, with a width set separately from the spread of preferred SFs that feeds the suppressive pool. When the two match, Rmax barely moves and attention shows up as contrast gain; when the voxel&rsquo;s band is narrower, Rmax depends on where that band sits relative to the gain ridge. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
+        <p><b>Measurement.</b> The voxel is a weighted sum of the units at the probe&rsquo;s cortical location. Its weights are a band in SF centred on the local preferred SF. The width of that band is solved at each eccentricity so that the model voxel&rsquo;s SF tuning has the measured bandwidth, by default 3 octaves at the fovea rising to 4.3 at 9&deg; after <a href="https://sites.bu.edu/vision/files/2020/02/AghajariVinkeLing_2020-3.pdf">Aghajari, Vinke &amp; Ling (2020)</a>. That makes the band narrower than the population feeding the suppressive pool, so Rmax can move a little with attention as well as c50. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
         <p><b>Defaults.</b> Normalization follows Reynolds &amp; Heeger (2009). M(e) = 17.3 / (e + 0.75) mm/deg after Horton &amp; Hoyt (1991). Preferred period 0.12e + 0.35 deg after <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8934567">Broderick, Simoncelli &amp; Winawer (2022)</a>. &sigma; is scaled so a full-field grating at the preferred frequency has an unattended c50 of &sigma;.</p>
       </section>
     </main>
@@ -425,6 +434,7 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
 </div>
 <div id="tip" role="status" aria-live="off"></div>
 <script src="model.js"></script>
+<script src="export_matlab.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
