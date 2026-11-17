@@ -46,7 +46,8 @@
     sigSx: 4.0,      // suppressive pool width on cortex, mm (sd)
     // population
     sigT: 0.6,       // single-unit SF tuning width, octaves (sd)
-    sigPop: 1.5,     // spread of preferred SFs at one eccentricity, octaves (sd)
+    sigPop: 1.5,     // spread of preferred SFs at one eccentricity, octaves (sd); feeds the pool
+    sigVox: 1.5,     // SF band a voxel reads out, centred on the local preferred SF, octaves (sd)
     e2: 0.75,        // deg; M(e) = 17.3 / (e + e2)
     a: 0.12,         // preferred period (deg) = a * e + b  (Broderick et al., 2022)
     b: 0.35
@@ -93,11 +94,16 @@
     }
 
     // Density of units over preferred SF at each eccentricity (unit integral per column).
-    var w = new Float64Array(NX * NF);
-    var wn = 1 / (p.sigPop * Math.sqrt(2 * Math.PI));
+    // w weights the normalization pool. wv is what a voxel at that location reads out:
+    // the same centre, but its own width, so the readout can be narrower than the pool.
+    var w = new Float64Array(NX * NF), wv = new Float64Array(NX * NF);
+    var wn = 1 / (p.sigPop * Math.sqrt(2 * Math.PI)), wvn = 1 / (p.sigVox * Math.sqrt(2 * Math.PI));
     for (i = 0; i < NX; i++) {
       var c0 = Math.log2(prefSF(es[i]));
-      for (k = 0; k < NF; k++) w[i * NF + k] = wn * Math.exp(-0.5 * Math.pow((lfs[k] - c0) / p.sigPop, 2));
+      for (k = 0; k < NF; k++) {
+        w[i * NF + k] = wn * Math.exp(-0.5 * Math.pow((lfs[k] - c0) / p.sigPop, 2));
+        wv[i * NF + k] = wvn * Math.exp(-0.5 * Math.pow((lfs[k] - c0) / p.sigVox, 2));
+      }
     }
 
     // Attention fields.
@@ -163,7 +169,7 @@
       return { ix: ix, G: G, sx: sxn[ix], model: model };
     }
 
-    // Response of every unit in the column; returns the density-weighted pooled response.
+    // Response of every unit in the column; returns the voxel-weighted pooled response.
     var sRef = 1;
     function respond(col, sf, outR) {
       var t = sf.t, k0 = sf.k0, k1 = sf.k1, G = col.G, h = Kf.h;
@@ -176,7 +182,7 @@
         for (var kk = a0; kk <= a1; kk++) s += Kf.k[kk - k + h] * t[kk] * G[kk];
         var r = Af[o + k] * col.sx * t[k] / (s / sRef + sigN);
         if (outR) outR[k] = r;
-        pooled += w[o + k] * r;
+        pooled += wv[o + k] * r;
       }
       return pooled * DLF;
     }
@@ -206,11 +212,11 @@
         var s = 0, a0 = Math.max(k0, k - h), a1 = Math.min(k1, k + h);
         for (var kk = a0; kk <= a1; kk++) s += Kf.k[kk - k + h] * t[kk] * col.G[kk];
         alpha[k - k0] = s / sRef;
-        num[k - k0] = w[o + k] * Af[o + k] * col.sx * t[k] * DLF;
+        num[k - k0] = wv[o + k] * Af[o + k] * col.sx * t[k] * DLF;
       }
       return { num: num, alpha: alpha, len: len };
     }
-    // Pooled (density-weighted) response of the column at contrast c.
+    // Pooled (voxel-weighted) response of the column at contrast c.
     function pooledAt(u, c) {
       var cn = Math.pow(c, p.n), out = 0;
       for (var j = 0; j < u.len; j++) out += u.num[j] * cn / (u.alpha[j] * cn + sigN);
@@ -251,7 +257,7 @@
     }
 
     return {
-      p: p, NX: NX, NF: NF, es: es, lfs: lfs, dx: dx, xMax: xMax, w: w, A: A,
+      p: p, NX: NX, NF: NF, es: es, lfs: lfs, dx: dx, xMax: xMax, w: w, wv: wv, A: A,
       xOf: xOf, eOf: eOf, prefSF: prefSF, ridgeSF: ridgeSF,
       columnIndex: columnIndex, probeColumn: probeColumn, respond: respond,
       sfProfile: sfProfile, probeResponse: probeResponse, image: image,

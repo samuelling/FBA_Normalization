@@ -47,6 +47,9 @@
       { id: 'psize', label: 'Size', min: 0.5, max: 12.5, step: 0.5, def: 2, tf: function (v) { return v > 12 ? F.FULL_FIELD : v; }, fmt: function (v) { return v >= F.FULL_FIELD ? 'full field' : v.toFixed(1) + '°'; } },
       { id: 'pbw', label: 'SF bandwidth', min: 0, max: 2, step: 0.05, def: 0, fmt: function (v) { return v === 0 ? 'grating' : v.toFixed(2) + ' oct'; } }
     ],
+    voxel: [
+      { id: 'sigVox', label: 'SF band the voxel reads out', min: 0.2, max: 2.5, step: 0.05, def: 1.5, fmt: function (v) { return v.toFixed(2) + ' oct'; } }
+    ],
     norm: [
       { id: 'sigma', label: 'Semi-saturation σ', min: 0.02, max: 0.5, step: 0.01, def: 0.1, fmt: fPct },
       { id: 'n', label: 'Exponent n', min: 1, max: 3, step: 0.1, def: 2, fmt: function (v) { return v.toFixed(1); } },
@@ -55,7 +58,7 @@
     ],
     pop: [
       { id: 'sigT', label: 'Unit SF tuning width', min: 0.3, max: 1.2, step: 0.05, def: 0.6, fmt: function (v) { return v.toFixed(2) + ' oct'; } },
-      { id: 'sigPop', label: 'Spread of preferred SFs', min: 0.5, max: 2.5, step: 0.1, def: 1.5, fmt: function (v) { return v.toFixed(1) + ' oct'; } },
+      { id: 'sigPop', label: 'Spread of preferred SFs in the pool', min: 0.5, max: 2.5, step: 0.1, def: 1.5, fmt: function (v) { return v.toFixed(1) + ' oct'; } },
       { id: 'e2', label: 'Magnification constant e₂', min: 0.3, max: 3, step: 0.05, def: 0.75, fmt: function (v) { return v.toFixed(2) + '°'; } },
       { id: 'a', label: 'Preferred period, slope', min: 0.05, max: 0.25, step: 0.01, def: 0.12, fmt: function (v) { return v.toFixed(2) + '°/°'; } },
       { id: 'b', label: 'Preferred period at the fovea', min: 0.15, max: 0.8, step: 0.01, def: 0.35, fmt: function (v) { return v.toFixed(2) + '°'; } }
@@ -344,8 +347,9 @@
       var v = fast.res[m][q], e = effect(q, base, v), el = $('t-' + m + '-val');
       el.textContent = (q === 'c50' ? plain(e, 1) : signed(e, 1)) + '%';
       var sm = document.createElement('small'); sm.textContent = MEAS[q].tile; el.appendChild(sm);
-      $('t-' + m + '-sub').textContent = q === 'c50' ? 'c50 ' + fPct(base) + ' → ' + fPct(v)
-        : q === 'rmax' ? 'Rmax ' + base.toFixed(3) + ' → ' + v.toFixed(3)
+      var fb = fast.res.none.fit, fm = fast.res[m].fit;
+      $('t-' + m + '-sub').textContent = q === 'c50' ? 'c50 ' + fC50(base) + ' → ' + fC50(v) + ' · Rmax ' + signed(100 * (fm.rmax / fb.rmax - 1), 1) + '%'
+        : q === 'rmax' ? 'Rmax ' + base.toFixed(3) + ' → ' + v.toFixed(3) + ' · c50 ' + signed(100 * (fm.c50 / fb.c50 - 1), 1) + '%'
         : 'Response at ' + fPct(st.c) + ' contrast: ' + base.toFixed(3) + ' → ' + v.toFixed(3);
     });
     var best = -1, bd = 0, floor = 0, j;
@@ -723,7 +727,7 @@
     L.push('# FBA normalization model predictions');
     L.push('# attention: gain ' + V.gain + ', attended ' + V.fAtt.toFixed(3) + ' cpd at ' + V.eAtt + ' deg, SF width ' + V.sigAf + ' oct, cortical rule ' + S.cortRule);
     L.push('# probe: ' + st.f.toFixed(3) + ' cpd at ' + st.e + ' deg, contrast ' + st.c.toFixed(4) + ', size ' + (st.size >= F.FULL_FIELD ? 'full field' : st.size + ' deg') + ', SF bandwidth ' + st.bw + ' oct');
-    L.push('# model: sigma ' + V.sigma + ', n ' + V.n + ', pool ' + V.sigSf + ' oct x ' + V.sigSx + ' mm, unit tuning ' + V.sigT + ' oct, pref spread ' + V.sigPop + ' oct, e2 ' + V.e2 + ', pref period ' + V.a + 'e+' + V.b);
+    L.push('# model: sigma ' + V.sigma + ', n ' + V.n + ', pool ' + V.sigSf + ' oct x ' + V.sigSx + ' mm, unit tuning ' + V.sigT + ' oct, pool pref spread ' + V.sigPop + ' oct, voxel SF band ' + V.sigVox + ' oct, e2 ' + V.e2 + ', pref period ' + V.a + 'e+' + V.b);
     L.push(''); L.push('[naka_rushton_fit]'); L.push('condition,c50,rmax,n');
     MODELS.forEach(function (m) { var f = fast.res[m].fit; L.push(m + ',' + f.c50.toFixed(5) + ',' + f.rmax.toFixed(5) + ',' + f.n.toFixed(4)); });
     L.push(''); L.push('[contrast_response_at_probe]'); L.push('contrast,none,stim,cort');
@@ -767,7 +771,7 @@
   function update() {
     raf = 0;
     readControls();
-    model = F.create({ gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, e2: V.e2, a: V.a, b: V.b });
+    model = F.create({ gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, sigVox: V.sigVox, e2: V.e2, a: V.a, b: V.b });
     fast = computeFast();
     renderTiles(); renderCRF(); renderTune(); renderPSFT();
     if (S.view !== 'sweep') renderMaps();

@@ -274,6 +274,11 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
         <p class="hint">Ignored, in the hemifield opposite the attended grating.</p>
         <div id="grp-probe"></div>
       </section>
+      <section class="card panel">
+        <h2>Voxel readout</h2>
+        <p class="hint">Centred on the local preferred SF. At or above the pool&rsquo;s spread, the voxel reads out the population that normalizes it; narrower, it reads out a sub-band.</p>
+        <div id="grp-voxel"></div>
+      </section>
       <details class="card panel" id="adv">
         <summary><h2>Normalization and cortex</h2></summary>
         <p class="subhead">Normalization</p>
@@ -412,7 +417,7 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
         <h2>What the simulation assumes</h2>
         <p><b>Neural image.</b> Units are laid out by cortical distance along one meridian and by preferred spatial frequency. Receptive fields (1 mm sd) and the suppressive pool have a fixed size in millimetres of cortex, so both grow with eccentricity in degrees. At each eccentricity, preferred frequencies are spread around the local peak p(e).</p>
         <p><b>Attention fields.</b> Both are spatially global and pass through the attended grating. Stimulus-based puts the gain ridge at the attended cpd at every eccentricity. Cortical-based rescales it, either with cortical magnification (constant cycles per millimetre) or with the local preferred frequency.</p>
-        <p><b>Measurement.</b> The readout is the density-weighted sum of every unit at the probe&rsquo;s cortical location, which is what a voxel there pools. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
+        <p><b>Measurement.</b> The voxel is a weighted sum of the units at the probe&rsquo;s cortical location. Its weights are a band in SF centred on the local preferred SF, with a width set separately from the spread of preferred SFs that feeds the suppressive pool. When the two match, Rmax barely moves and attention shows up as contrast gain; when the voxel&rsquo;s band is narrower, Rmax depends on where that band sits relative to the gain ridge. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
         <p><b>Defaults.</b> Normalization follows Reynolds &amp; Heeger (2009). M(e) = 17.3 / (e + 0.75) mm/deg after Horton &amp; Hoyt (1991). Preferred period 0.12e + 0.35 deg after <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8934567">Broderick, Simoncelli &amp; Winawer (2022)</a>. &sigma; is scaled so a full-field grating at the preferred frequency has an unattended c50 of &sigma;.</p>
       </section>
     </main>

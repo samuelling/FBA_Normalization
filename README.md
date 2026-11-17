@@ -24,11 +24,18 @@ cortex. For each condition (no attention, stimulus-based, cortical-based):
 Only the attention field `A` differs between the two models. Both fields are
 spatially global and pass through the attended grating.
 
-The measurement is the population contrast response at an ignored probe: the
-density-weighted sum of all units at the probe's cortical location, sampled at nine
+The measurement is the population contrast response at an ignored probe: a
+weighted sum of the units at the probe's cortical location (a voxel), sampled at nine
 contrasts (1 to 100%) and fitted with a Naka-Rushton function. Attention effects are
 reported as the change in the estimated c50 (contrast gain), Rmax (response gain),
 or the response at the probe contrast.
+
+The voxel's weights are a band in SF centred on the local preferred SF (`sigVox`),
+set separately from the spread of preferred SFs that feeds the suppressive pool
+(`sigPop`). With the two equal, the voxel reads out the population that normalizes
+it and attention appears as contrast gain in both models. With a narrower voxel
+band, Rmax changes too, with opposite sign in the two models away from the attended
+eccentricity.
 
 ## Files
 
