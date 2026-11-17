@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBA Normalization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a fixed control rail on the left, predictions on the right, read top to
+   bottom as estimate -> tuning -> neural image. Two model hues are the only chroma in
+   the chrome; maps are greyscale neural images, red/blue only for signed effects. */
+:root {
+  color-scheme: light;
+  --page: #eef0f4;
+  --surface: #fcfcfd;
+  --surface-2: #f4f5f8;
+  --ink: #0f1218;
+  --ink-2: #4a5060;
+  --muted: #7b8291;
+  --grid: #e4e6ec;
+  --axis: #c3c7d1;
+  --border: rgba(15, 18, 24, 0.10);
+  --stim: #6250d6;
+  --cort: #eb6834;
+  --none: #8a8f9c;
+  --seq-0: #f3f4f7;
+  --seq-1: #1b2130;
+  --div-neg: #17509a;
+  --div-mid: #eeeff2;
+  --div-pos: #b3261e;
+  --shadow: 0 1px 2px rgba(15, 18, 24, 0.05), 0 8px 24px -16px rgba(15, 18, 24, 0.18);
+  --font-display: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0b0c0f;
+    --surface: #15171b;
+    --surface-2: #1c1f24;
+    --ink: #eef0f4;
+    --ink-2: #bfc4ce;
+    --muted: #8b919e;
+    --grid: #262930;
+    --axis: #3b3f48;
+    --border: rgba(255, 255, 255, 0.10);
+    --stim: #9085e9;
+    --cort: #d95926;
+    --none: #7c828f;
+    --seq-0: #15171b;
+    --seq-1: #f4f6fa;
+    --div-neg: #5fa0ee;
+    --div-mid: #2a2d34;
+    --div-pos: #f0716a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0b0c0f;
+  --surface: #15171b;
+  --surface-2: #1c1f24;
+  --ink: #eef0f4;
+  --ink-2: #bfc4ce;
+  --muted: #8b919e;
+  --grid: #262930;
+  --axis: #3b3f48;
+  --border: rgba(255, 255, 255, 0.10);
+  --stim: #9085e9;
+  --cort: #d95926;
+  --none: #7c828f;
+  --seq-0: #15171b;
+  --seq-1: #f4f6fa;
+  --div-neg: #5fa0ee;
+  --div-mid: #2a2d34;
+  --div-pos: #f0716a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+.app { max-width: 1480px; margin: 0 auto; padding: 28px 24px 56px; display: flex; flex-direction: column; gap: 22px; }
+
+/* masthead */
+.masthead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px 40px; }
+.masthead-text { flex: 1 1 520px; max-width: 760px; display: flex; flex-direction: column; gap: 8px; }
+.eyebrow { margin: 0; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(30px, 3.4vw, 44px); line-height: 1.05; letter-spacing: -0.01em; text-wrap: balance; }
+h1 em { font-style: italic; }
+.lede { margin: 0; color: var(--ink-2); font-size: 15px; max-width: 68ch; }
+.equation { flex: 0 1 auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.eq-line { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-style: italic; font-size: 22px; line-height: 1.1; white-space: nowrap; }
+.eq-frac { display: inline-flex; flex-direction: column; align-items: center; }
+.eq-frac span { padding: 1px 8px; }
+.eq-frac span + span { border-top: 1px solid var(--ink); }
+.eq-line sup { font-size: 0.6em; }
+.eq-note { margin: 0; font-size: 12px; color: var(--muted); max-width: 300px; }
+
+/* layout */
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.rail { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 32px); overflow-y: auto; padding-right: 2px; }
+.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.panel { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.panel h2, .card h2 { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.linkbtn { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.linkbtn:hover { color: var(--ink); }
+
+/* sliders */
+.ctl { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: baseline; }
+.ctl label { font-size: 13px; color: var(--ink); }
+.ctl output { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ctl input[type=range] { grid-column: 1 / -1; }
+.hint { margin: -4px 0 0; font-size: 12px; color: var(--muted); }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: var(--axis); }
+input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: var(--axis); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--ink); }
+input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--ink); }
+input[type=range]:focus-visible { outline: 2px solid var(--stim); outline-offset: 3px; border-radius: 4px; }
+details.panel > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::after { content: "+"; font-family: var(--font-mono); color: var(--muted); font-size: 15px; }
+details.panel[open] > summary::after { content: "\2212"; }
+details.panel > summary:focus-visible { outline: 2px solid var(--stim); outline-offset: 4px; border-radius: 4px; }
+.subhead { margin: 4px 0 -4px; font-size: 12px; color: var(--muted); font-weight: 500; }
+
+/* segmented controls */
+.seg { display: inline-flex; flex-wrap: wrap; padding: 2px; gap: 2px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.seg span { display: block; padding: 5px 10px; border-radius: 6px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.seg input:checked + span { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgba(0, 0, 0, 0.08); }
+.seg input:focus-visible + span { outline: 2px solid var(--stim); outline-offset: 1px; }
+.seg.full { display: flex; }
+.seg.full label { flex: 1 1 auto; text-align: center; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field > .lab { font-size: 13px; }
+
+/* toolbar */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding: 10px 14px; }
+.toolbar .tgroup { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.toolbar .tlabel { font-size: 12.5px; color: var(--muted); }
+.toolbar .spacer { flex: 1 1 auto; }
+.btn { font: inherit; font-size: 12.5px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn:hover { background: var(--surface-2); }
+.btn:focus-visible { outline: 2px solid var(--stim); outline-offset: 2px; }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.tile { padding: 14px 16px 15px; display: flex; flex-direction: column; gap: 4px; position: relative; overflow: hidden; }
+.tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--key, var(--axis)); }
+.tile .tname { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+.tile .twhat { font-size: 12.5px; color: var(--ink-2); min-height: 2.9em; }
+.tile .tval { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.tile .tval small { font-size: 13px; font-weight: 400; color: var(--ink-2); letter-spacing: 0; margin-left: 6px; }
+.tile .tsub { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.key { display: inline-block; width: 14px; height: 0; border-top: 3px solid var(--k); border-radius: 2px; flex: none; }
+
+/* chart cards */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.chart { padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; transition: opacity 0.12s; }
+.chart.stale .plot, .chart.stale .maps { opacity: 0.55; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 16px; }
+.card h2.chart-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.chart-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.plot { position: relative; width: 100%; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: var(--font-body); fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg .axis-title { fill: var(--ink-2); font-size: 11.5px; }
+svg .anno { fill: var(--ink-2); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+svg .dlabel { fill: var(--ink); font-size: 11.5px; font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+
+table.est { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+table.est th { text-align: right; font-weight: 500; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--grid); }
+table.est td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--grid); }
+table.est tr:last-child td { border-bottom: 0; }
+table.est th:first-child, table.est td:first-child { text-align: left; padding-left: 0; }
+table.est td:first-child { display: flex; align-items: center; gap: 7px; }
+
+/* maps */
+.maps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; transition: opacity 0.12s; }
+.map-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.map-name { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; padding-left: 46px; }
+.map { position: relative; width: 100%; touch-action: none; }
+.map canvas { position: absolute; display: block; border-radius: 2px; }
+.map svg { position: relative; display: block; width: 100%; height: auto; overflow: visible; }
+.map-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; padding-left: 46px; }
+.cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cbar canvas { width: clamp(90px, 28vw, 200px); height: 10px; border-radius: 2px; display: block; box-shadow: 0 0 0 1px var(--border); }
+.cbar .cb-title { color: var(--ink); margin-right: 4px; }
+.glyph { display: inline-block; width: 16px; height: 10px; flex: none; }
+
+/* notes & data */
+.notes { padding: 16px 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 32px; }
+.notes h2 { grid-column: 1 / -1; }
+.notes p { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 66ch; }
+.notes p b { color: var(--ink); font-weight: 600; }
+.notes a { color: inherit; }
+.datapanel { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.datapanel[hidden] { display: none; }
+.datapanel textarea { width: 100%; height: 220px; resize: vertical; font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.datapanel .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.datapanel .status { font-size: 12.5px; color: var(--ink-2); }
+
+/* tooltip */
+#tip { position: fixed; z-index: 20; pointer-events: none; min-width: 150px; max-width: 280px; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.35); font-size: 12.5px; opacity: 0; transition: opacity 0.08s; }
+#tip.on { opacity: 1; }
+#tip .tt { color: var(--ink-2); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+#tip .tr { display: flex; align-items: center; gap: 7px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+#tip .tr .nm { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+#tip .tr b { font-weight: 600; color: var(--ink); }
+
+@media (max-width: 1080px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; max-height: none; overflow: visible; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (max-width: 760px) {
+  .app { padding: 20px 16px 40px; }
+  .tiles, .grid2, .maps, .notes { grid-template-columns: minmax(0, 1fr); }
+  .tile .twhat { min-height: 0; }
+  .map-foot, .map-name { padding-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="masthead">
+    <div class="masthead-text">
+      <p class="eyebrow">Normalization model of attention &middot; eccentricity &times; spatial frequency</p>
+      <h1>Does feature-based attention select the <em>stimulus</em> or the <em>cortex</em>?</h1>
+      <p class="lede">Attend a grating at one eccentricity and measure the population contrast response to an ignored probe somewhere else. Both models spread gain across the whole field, but over different swaths of the neural image, so they predict contrast gain at different probe spatial frequencies.</p>
+    </div>
+    <div class="equation" role="img" aria-label="R equals A times E to the n, divided by S plus sigma to the n">
+      <div class="eq-line">
+        <span>R(x, f)</span><span>=</span>
+        <span class="eq-frac"><span>A(x, f) &middot; E(x, f)<sup>n</sup></span><span>S(x, f) + &sigma;<sup>n</sup></span></span>
+      </div>
+      <p class="eq-note">Only the attention field A differs between the two models. Stimulus drive E, suppressive pool S and the readout are shared.</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="rail" aria-label="Model controls">
+      <section class="card panel">
+        <div class="panel-head"><h2>Attention</h2><button type="button" class="linkbtn" id="reset">Reset all</button></div>
+        <div id="grp-attention"></div>
+        <div class="field">
+          <span class="lab" id="lab-rule">Cortical model rescales the attended SF with</span>
+          <div class="seg full" role="radiogroup" aria-labelledby="lab-rule">
+            <label><input type="radio" name="cortRule" id="rule-mag" value="mag" checked><span>Magnification M(e)</span></label>
+            <label><input type="radio" name="cortRule" id="rule-pref" value="pref"><span>SF preference p(e)</span></label>
+          </div>
+        </div>
+      </section>
+      <section class="card panel">
+        <h2>Probe stimulus</h2>
+        <p class="hint">Ignored, in the hemifield opposite the attended grating.</p>
+        <div id="grp-probe"></div>
+      </section>
+      <details class="card panel" id="adv">
+        <summary><h2>Normalization and cortex</h2></summary>
+        <p class="subhead">Normalization</p>
+        <div id="grp-norm"></div>
+        <p class="subhead">Population</p>
+        <div id="grp-pop"></div>
+      </details>
+    </aside>
+
+    <main class="main">
+      <section class="card toolbar" aria-label="Display options">
+        <div class="tgroup">
+          <span class="tlabel" id="lab-measure">Attention effect measured as</span>
+          <div class="seg" role="radiogroup" aria-labelledby="lab-measure">
+            <label><input type="radio" name="measure" id="m-c50" value="c50" checked><span>Contrast gain (c50)</span></label>
+            <label><input type="radio" name="measure" id="m-rmax" value="rmax"><span>Response gain (Rmax)</span></label>
+            <label><input type="radio" name="measure" id="m-resp" value="resp"><span>Response at probe contrast</span></label>
+          </div>
+        </div>
+        <div class="tgroup">
+          <span class="tlabel" id="lab-axis">Eccentricity axis</span>
+          <div class="seg" role="radiogroup" aria-labelledby="lab-axis">
+            <label><input type="radio" name="axis" id="ax-ecc" value="ecc" checked><span>Degrees</span></label>
+            <label><input type="radio" name="axis" id="ax-cortex" value="cortex"><span>Cortical distance</span></label>
+          </div>
+        </div>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="data-toggle" aria-expanded="false" aria-controls="datapanel">Data table</button>
+      </section>
+
+      <section class="card datapanel" id="datapanel" hidden>
+        <div class="row"><button type="button" class="btn" id="data-copy">Copy CSV</button><span class="status" id="data-status">Everything plotted below, for the current settings.</span></div>
+        <textarea id="data-text" readonly aria-label="Predictions as CSV"></textarea>
+      </section>
+
+      <section class="tiles" aria-label="Predictions for the current probe">
+        <div class="card tile" style="--key: var(--stim)">
+          <div class="tname"><i class="key" style="--k: var(--stim)"></i>Stimulus-based</div>
+          <div class="twhat" id="t-stim-what"></div>
+          <div class="tval" id="t-stim-val"></div>
+          <div class="tsub" id="t-stim-sub"></div>
+        </div>
+        <div class="card tile" style="--key: var(--cort)">
+          <div class="tname"><i class="key" style="--k: var(--cort)"></i>Cortical-based</div>
+          <div class="twhat" id="t-cort-what"></div>
+          <div class="tval" id="t-cort-val"></div>
+          <div class="tsub" id="t-cort-sub"></div>
+        </div>
+        <div class="card tile">
+          <div class="tname">Most diagnostic probe</div>
+          <div class="twhat" id="t-diag-what"></div>
+          <div class="tval" id="t-diag-val"></div>
+          <div class="tsub" id="t-diag-sub"></div>
+        </div>
+      </section>
+
+      <section class="grid2">
+        <div class="card chart" id="card-crf">
+          <div class="chart-head">
+            <div><h2 class="chart-title">Estimated contrast response at the probe</h2><p class="chart-sub" id="crf-sub"></p></div>
+            <div class="legend">
+              <span><i class="key" style="--k: var(--none)"></i>No attention</span>
+              <span><i class="key" style="--k: var(--stim)"></i>Stimulus-based</span>
+              <span><i class="key" style="--k: var(--cort)"></i>Cortical-based</span>
+            </div>
+          </div>
+          <div class="plot" id="plot-crf"></div>
+          <table class="est" aria-label="Naka-Rushton estimates">
+            <thead><tr><th>Naka&ndash;Rushton fit</th><th>c50</th><th>&Delta; c50</th><th>Rmax</th><th>&Delta; Rmax</th><th>n</th></tr></thead>
+            <tbody id="est-body"></tbody>
+          </table>
+        </div>
+        <div class="card chart" id="card-tune">
+          <div class="chart-head">
+            <div><h2 class="chart-title">Attention effect across probe spatial frequency</h2><p class="chart-sub" id="tune-sub"></p></div>
+            <div class="legend">
+              <span><i class="key" style="--k: var(--stim)"></i>Stimulus-based</span>
+              <span><i class="key" style="--k: var(--cort)"></i>Cortical-based</span>
+            </div>
+          </div>
+          <div class="plot" id="plot-tune"></div>
+        </div>
+      </section>
+
+      <section class="card chart" id="card-maps">
+        <div class="chart-head">
+          <div><h2 class="chart-title">Neural image</h2><p class="chart-sub" id="maps-sub"></p></div>
+          <div class="seg" role="radiogroup" aria-label="Map view">
+            <label><input type="radio" name="view" id="v-field" value="field" checked><span>Attention field</span></label>
+            <label><input type="radio" name="view" id="v-resp" value="resp"><span>Unit responses</span></label>
+            <label><input type="radio" name="view" id="v-sweep" value="sweep"><span>CRF effect by probe</span></label>
+          </div>
+        </div>
+        <div class="maps">
+          <div class="map-col">
+            <div class="map-name"><i class="key" style="--k: var(--stim)"></i>Stimulus-based</div>
+            <div class="map" id="map-stim"><canvas></canvas><svg></svg></div>
+          </div>
+          <div class="map-col">
+            <div class="map-name"><i class="key" style="--k: var(--cort)"></i>Cortical-based</div>
+            <div class="map" id="map-cort"><canvas></canvas><svg></svg></div>
+          </div>
+        </div>
+        <div class="map-foot">
+          <div class="cbar"><span class="cb-title" id="cb-title"></span><span id="cb-lo"></span><canvas id="cb-canvas" width="200" height="10"></canvas><span id="cb-hi"></span></div>
+          <div class="legend" id="map-legend"></div>
+        </div>
+      </section>
+
+      <section class="grid2">
+        <div class="card chart" id="card-peak">
+          <div class="chart-head">
+            <div><h2 class="chart-title">Where the attention effect peaks</h2><p class="chart-sub" id="peak-sub"></p></div>
+            <div class="legend">
+              <span><i class="key" style="--k: var(--stim)"></i>Stimulus-based</span>
+              <span><i class="key" style="--k: var(--cort)"></i>Cortical-based</span>
+              <span><i class="key" style="--k: var(--none)"></i>Preferred SF</span>
+            </div>
+          </div>
+          <div class="plot" id="plot-peak"></div>
+        </div>
+        <div class="card chart" id="card-psft">
+          <div class="chart-head">
+            <div><h2 class="chart-title">Population spatial frequency tuning</h2><p class="chart-sub" id="psft-sub"></p></div>
+            <div class="legend">
+              <span><i class="key" style="--k: var(--none)"></i>No attention</span>
+              <span><i class="key" style="--k: var(--stim)"></i>Stimulus-based</span>
+              <span><i class="key" style="--k: var(--cort)"></i>Cortical-based</span>
+            </div>
+          </div>
+          <div class="plot" id="plot-psft"></div>
+        </div>
+      </section>
+
+      <section class="card notes">
+        <h2>What the simulation assumes</h2>
+        <p><b>Neural image.</b> Units are laid out by cortical distance along one meridian and by preferred spatial frequency. Receptive fields (1 mm sd) and the suppressive pool have a fixed size in millimetres of cortex, so both grow with eccentricity in degrees. At each eccentricity, preferred frequencies are spread around the local peak p(e).</p>
+        <p><b>Attention fields.</b> Both are spatially global and pass through the attended grating. Stimulus-based puts the gain ridge at the attended cpd at every eccentricity. Cortical-based rescales it, either with cortical magnification (constant cycles per millimetre) or with the local preferred frequency.</p>
+        <p><b>Measurement.</b> The readout is the density-weighted sum of every unit at the probe&rsquo;s cortical location, which is what a voxel there pools. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
+        <p><b>Defaults.</b> Normalization follows Reynolds &amp; Heeger (2009). M(e) = 17.3 / (e + 0.75) mm/deg after Horton &amp; Hoyt (1991). Preferred period 0.12e + 0.35 deg after <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8934567">Broderick, Simoncelli &amp; Winawer (2022)</a>. &sigma; is scaled so a full-field grating at the preferred frequency has an unattended c50 of &sigma;.</p>
+      </section>
+    </main>
+  </div>
+</div>
+<div id="tip" role="status" aria-live="off"></div>
+<script src="model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
