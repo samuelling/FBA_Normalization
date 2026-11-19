@@ -85,6 +85,7 @@
 %   map                      the same over probe eccentricity x SF (if doMap)
 %   model                    the neural image: grids, densities, attention fields,
 %                            and the solved voxel band (model.sigVox, one per column)
+%   design                   predicted pSFT changes for the 2025 design (if doDesign)
 %
 % REQUIREMENTS
 %   Base MATLAB R2016b or later (implicit expansion). No toolboxes.
@@ -102,6 +103,8 @@ P.sigAf    = ${num(P.sigAf)};      % width of the attention field along SF (octa
 P.cortRule = '${P.cortRule}';  % how the cortical model rescales the attended SF with eccentricity:
                        %   'mag'   with cortical magnification M(e): constant cycles per mm of cortex
                        %   'pref'  with the local preferred SF p(e): same place in the local tuning
+P.k        = ${num(P.k === undefined ? 1 : P.k)};      % scaling exponent of the cortical model: the rescaling is raised
+                       % to k. 0 = no rescaling (same as stimulus-based), 1 = the full rule.
 
 % ---- Normalization
 P.sigma  = ${num(P.sigma)};      % semi-saturation, in contrast units. Calibrated in build_model so that
@@ -142,6 +145,8 @@ plotMeasure = '${cfg.measure || 'c50'}';                   % what the tuning cur
                                        %   'c50'   reduction in c50 (%), i.e. contrast gain
                                        %   'rmax'  increase in Rmax (%), i.e. response gain
                                        %   'resp'  increase in response at probe.contrast (%)
+doDesign       = true;                 % also simulate the pSFT design of Ramirez, Wang & Ling (2025)
+designContrast = ${num(cfg.designContrast === undefined ? 1 : cfg.designContrast)};   % contrast of its pSFT stimuli (the study used 100%)
 
 %% ------------------------------------------------- 2. Build the neural image
 M     = build_model(P);
@@ -223,7 +228,29 @@ if doMap
 end
 out.model = M;
 
-%% -------------------------------------------------------------- 6. Figure
+%% ------------------- 6. Predictions for the 2025 pSFT design (Ramirez et al.)
+% The study attended a letter stream filtered around 0.5 cpd (LSF) or 2 cpd
+% (HSF) in one hemifield, at P.eAtt (3.5 deg in the study), and measured each
+% voxel's SF tuning (pSFT) in the other hemifield with full-field bandlimited
+% noise at 40 log-spaced SFs from 0.1 to 12 cpd, fitted with a log-Gaussian,
+% against a fixation baseline. Here the noise is approximated by narrowband
+% stimuli. For each model and attended SF we report, per voxel eccentricity:
+%   peakChange  percent change in the fitted pSFT peak
+%   dist        the voxel's baseline peak relative to the attended SF (octaves)
+% and the summaries the paper used: the mean, the slope against dist (% per
+% octave; negative = attraction) and the slope against eccentricity.
+if doDesign
+    out.design = simulate_psft_design(P, designContrast);
+    fprintf('\n2025 pSFT design (attended at %.2f deg, pSFT contrast %.0f%%):\n', P.eAtt, 100 * designContrast);
+    fprintf('%-34s %10s %12s %12s %10s\n', 'Prediction', 'Mean peak', 'Slope/oct', 'Slope/deg', 'Mean BW');
+    keys = {'stim_hsf', 'stim_lsf', 'cort_hsf', 'cort_lsf'};
+    for ik = 1:4
+        r = out.design.(keys{ik});
+        fprintf('%-34s %+9.2f%% %12.2f %12.3f %+9.2f%%\n', r.label, r.meanPeakChange, r.slopeDist, r.slopeEcc, r.meanBwChange);
+    end
+end
+
+%% -------------------------------------------------------------- 7. Figure
 if doPlot
     plot_summary(out, plotMeasure, doMap);
 end
@@ -356,11 +383,13 @@ switch cond
     case 'cort'
         if strcmp(P.cortRule, 'pref')
             % Rescale with the local preferred SF, p(e) = 1/(a*e + b).
-            f = P.fAtt .* (P.a .* P.eAtt + P.b) ./ (P.a .* e + P.b);
+            ratio = (P.a .* P.eAtt + P.b) ./ (P.a .* e + P.b);
         else
             % Rescale with cortical magnification, M(e) proportional to 1/(e + e2).
-            f = P.fAtt .* (P.eAtt + P.e2) ./ (e + P.e2);
+            ratio = (P.eAtt + P.e2) ./ (e + P.e2);
         end
+        % Partial scaling: k = 0 leaves the attended cpd unchanged, k = 1 applies the rule.
+        f = P.fAtt .* ratio .^ P.k;
     otherwise
         f = nan(size(e));
 end
@@ -481,6 +510,86 @@ function [sse, rmax] = naka_rushton_sse(q, c, y)
 g    = 1 ./ (1 + (exp(q(1)) ./ c) .^ exp(q(2)));   % Naka-Rushton with Rmax = 1
 rmax = sum(g .* y) / sum(g .* g);
 sse  = sum((y - rmax .* g) .^ 2);
+end
+
+
+function D = simulate_psft_design(P, contrast)
+% SIMULATE_PSFT_DESIGN  Predicted pSFT changes for the design of Ramirez,
+% Wang & Ling (2025): attended 0.5 or 2 cpd, pSFT measured across 0.16 to
+% 9.8 deg in the other hemifield. See section 6 of the main function.
+ecc = linspace(0.16, 9.8, 32);              % voxel pRF eccentricities (deg)
+sfs = 0.1 .* 120 .^ ((0:39) ./ 39);          % 40 pSFT stimuli, 0.1 to 12 cpd
+attSF  = [0.5 2];
+labels = {'lsf', 'hsf'};
+P0 = P;  P0.fAtt = attSF(1);
+M0 = build_model(P0);
+% baseline (fixation) tuning of each voxel
+base = zeros(numel(ecc), 3);                 % [peak (cpd), fwhm (octaves), amplitude]
+for i = 1:numel(ecc)
+    base(i, :) = voxel_psft(M0, 'none', ecc(i), sfs, contrast);
+end
+D.ecc = ecc;  D.sfs = sfs;  D.contrast = contrast;  D.eAtt = P.eAtt;
+D.basePeak = base(:, 1).';  D.baseFwhm = base(:, 2).';
+names = struct('stim', 'Stimulus-based', 'cort', 'Cortical-based');
+for a = 1:2
+    Pa = P;  Pa.fAtt = attSF(a);
+    if a == 1, Ma = M0; else, Ma = build_model(Pa); end
+    for cond = {'stim', 'cort'}
+        c = cond{1};
+        fit = zeros(numel(ecc), 3);
+        for i = 1:numel(ecc)
+            fit(i, :) = voxel_psft(Ma, c, ecc(i), sfs, contrast);
+        end
+        r.label      = sprintf('%s, attend %g cpd', names.(c), attSF(a));
+        r.attendedSF = attSF(a);
+        r.peakChange = 100 .* (fit(:, 1).' ./ D.basePeak - 1);    % percent change in peak
+        r.bwChange   = 100 .* (fit(:, 2).' ./ D.baseFwhm - 1);    % percent change in bandwidth
+        r.dist       = log2(D.basePeak ./ attSF(a));              % octaves from the attended SF
+        r.ridge      = ridge_sf(Pa, c, ecc);                      % centre of the attention field (cpd)
+        r.meanPeakChange = mean(r.peakChange);
+        r.meanBwChange   = mean(r.bwChange);
+        q = polyfit(r.dist, r.peakChange, 1);  r.slopeDist = q(1);   % % per octave
+        q = polyfit(ecc, r.peakChange, 1);     r.slopeEcc  = q(1);   % % per degree
+        D.([c '_' labels{a}]) = r;
+    end
+end
+end
+
+
+function out = voxel_psft(M, cond, e, sfs, contrast)
+% VOXEL_PSFT  Fitted SF tuning of the voxel at eccentricity e: its response
+% to full-field narrowband stimuli at each SF in sfs, fitted with a
+% log-Gaussian. Returns [peak (cpd), fwhm (octaves), amplitude].
+col = probe_column(M, cond, e, Inf);
+y   = zeros(size(sfs));
+for k = 1:numel(sfs)
+    y(k) = pooled_response(M, drive_units(M, col, sfs(k), 0), contrast);
+end
+[mu, s, amp] = fit_log_gaussian(log2(sfs), y);
+out = [2^mu, 2 * sqrt(2 * log(2)) * s, amp];
+end
+
+
+function [mu, s, amp] = fit_log_gaussian(x, y)
+% FIT_LOG_GAUSSIAN  Least-squares fit of y = amp * exp(-(x - mu)^2 / (2 s^2)),
+% x in log2 cpd. The amplitude is solved in closed form; fminsearch runs over
+% mu and log(s), starting from the peak sample and the half-max width.
+[ymax, ip] = max(y);
+yn  = y ./ ymax;
+lo  = x(find(yn(1:ip) < 0.5, 1, 'last') + 1);    if isempty(lo), lo = x(1); end
+hi  = x(ip - 1 + find(yn(ip:end) < 0.5, 1, 'first') - 1);  if isempty(hi), hi = x(end); end
+q0  = [x(ip), log(max((hi - lo) / 2.3548, 0.2))];
+opts = optimset('TolX', 1e-10, 'TolFun', 1e-14, 'MaxIter', 4000, 'MaxFunEvals', 8000, 'Display', 'off');
+q   = fminsearch(@(q) log_gaussian_sse(q, x, yn), q0, opts);
+[~, A] = log_gaussian_sse(q, x, yn);
+mu  = q(1);  s = exp(q(2));  amp = A * ymax;
+end
+
+
+function [sse, A] = log_gaussian_sse(q, x, y)
+g   = exp(-0.5 .* ((x - q(1)) ./ exp(q(2))) .^ 2);
+A   = sum(g .* y) / sum(g .* g);
+sse = sum((y - A .* g) .^ 2);
 end
 
 

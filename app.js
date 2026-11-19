@@ -40,6 +40,12 @@
       { id: 'eAtt', label: 'Attended eccentricity', min: 0.5, max: 10, step: 0.25, def: 2, fmt: fDeg },
       { id: 'sigAf', label: 'Width of the attention field in SF', min: 0.2, max: 2, step: 0.05, def: 0.5, fmt: function (v) { return v.toFixed(2) + ' oct'; } }
     ],
+    scaling: [
+      { id: 'k', label: 'Scaling exponent k', min: 0, max: 1.5, step: 0.05, def: 1, fmt: function (v) { return v.toFixed(2); } }
+    ],
+    design: [
+      { id: 'dc', label: 'pSFT stimulus contrast', min: -1.3, max: 0, step: 0.02, def: 0, tf: function (v) { return Math.pow(10, v); }, fmt: fPct }
+    ],
     probe: [
       { id: 'pe', label: 'Eccentricity', min: 0.5, max: 11, step: 0.25, def: 6, fmt: fDeg },
       { id: 'pf', label: 'Spatial frequency', min: -2, max: 3, step: 0.05, def: 1, tf: p2, fmt: function (v) { return fSF(v) + ' cpd'; } },
@@ -108,7 +114,7 @@
   }
   function stim() { return { e: V.pe, f: V.pf, c: V.pc, size: V.psize, bw: V.pbw }; }
   function modelParams() {
-    return { gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, bwFovea: V.bwFovea, bw9: V.bw9, e2: V.e2, a: V.a, b: V.b };
+    return { gain: V.gain, fAtt: V.fAtt, eAtt: V.eAtt, sigAf: V.sigAf, cortRule: S.cortRule, k: V.k, sigma: V.sigma, n: V.n, sigSf: V.sigSf, sigSx: V.sigSx, sigT: V.sigT, sigPop: V.sigPop, bwFovea: V.bwFovea, bw9: V.bw9, e2: V.e2, a: V.a, b: V.b };
   }
 
   // ---------- model state ----------
@@ -306,9 +312,13 @@
       if (!isFinite(l.x) || !isFinite(l.y)) return;
       s.push('<text class="' + (l.cls || 'dlabel') + '" x="' + (px(l.x) + (l.dx || 0)).toFixed(1) + '" y="' + (py(l.y) + (l.dy || 0)).toFixed(1) + '" text-anchor="' + (l.anchor || 'middle') + '">' + esc(l.text) + '</text>');
     });
-    s.push('<g class="xh" visibility="hidden"><line y1="' + m.t + '" y2="' + (m.t + ph) + '" stroke="var(--muted)"/>');
-    cfg.series.forEach(function (se) { if (se.hover !== false) s.push('<circle r="4.5" fill="' + se.color + '" stroke="var(--surface)" stroke-width="2"/>'); });
-    s.push('</g>');
+    if (cfg.hover && cfg.hover.mode === 'nearest') {
+      s.push('<g class="xh" visibility="hidden"><circle r="5" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/></g>');
+    } else {
+      s.push('<g class="xh" visibility="hidden"><line y1="' + m.t + '" y2="' + (m.t + ph) + '" stroke="var(--muted)"/>');
+      cfg.series.forEach(function (se) { if (se.hover !== false) s.push('<circle r="4.5" fill="' + se.color + '" stroke="var(--surface)" stroke-width="2"/>'); });
+      s.push('</g>');
+    }
     host.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(cfg.aria || '') + '">' + s.join('') + '</svg>';
     host._plot = { cfg: cfg, m: m, pw: pw, ph: ph, W: W, px: px, py: py };
     if (!host._bound) {
@@ -322,6 +332,23 @@
     var P = host._plot; if (!P || !P.cfg.hover) return;
     var r = host.getBoundingClientRect(), x = (ev.clientX - r.left) * P.W / r.width;
     var g = host.querySelector('.xh'), hv = P.cfg.hover;
+    if (hv.mode === 'nearest') {
+      var y = (ev.clientY - r.top) * P.W / r.width, bsi = -1, bj = -1, bd2 = 28 * 28;
+      P.cfg.series.forEach(function (se, si) {
+        se.pts.forEach(function (p, j) {
+          if (!isFinite(p[0]) || !isFinite(p[1])) return;
+          var dx = P.px(p[0]) - x, dy = P.py(p[1]) - y, dd = dx * dx + dy * dy;
+          if (dd < bd2) { bd2 = dd; bsi = si; bj = j; }
+        });
+      });
+      if (bsi < 0) { g.setAttribute('visibility', 'hidden'); hideTip(); return; }
+      var pt = P.cfg.series[bsi].pts[bj], dot = g.querySelector('circle');
+      dot.setAttribute('cx', P.px(pt[0]).toFixed(1)); dot.setAttribute('cy', P.py(pt[1]).toFixed(1)); dot.setAttribute('fill', P.cfg.series[bsi].color);
+      g.setAttribute('visibility', 'visible');
+      var info = hv.point(bsi, bj);
+      showTip(ev.clientX, ev.clientY, info.title, info.rows);
+      return;
+    }
     if (x < P.m.l - 4 || x > P.m.l + P.pw + 4) { g.setAttribute('visibility', 'hidden'); hideTip(); return; }
     var best = 0, bd = Infinity;
     for (var j = 0; j < hv.xs.length; j++) { var d = Math.abs(P.px(hv.xs[j]) - x); if (d < bd) { bd = d; best = j; } }
@@ -346,7 +373,7 @@
   function renderTiles() {
     var q = S.measure, st = fast.st, base = fast.res.none[q];
     $('t-stim-what').textContent = 'Gain ridge sits at ' + fSF(V.fAtt) + ' cpd at every eccentricity, including the probe’s ' + fDeg(st.e) + '.';
-    $('t-cort-what').textContent = 'Gain ridge is rescaled to ' + fSF(fast.ridge.cort) + ' cpd at the probe’s ' + fDeg(st.e) + (S.cortRule === 'mag' ? ' (constant cycles per mm of cortex).' : ' (same place relative to the local SF preference).');
+    $('t-cort-what').textContent = 'Gain ridge is rescaled to ' + fSF(fast.ridge.cort) + ' cpd at the probe’s ' + fDeg(st.e) + (S.cortRule === 'mag' ? ' (constant cycles per mm of cortex' : ' (same place relative to the local SF preference') + (Math.abs(V.k - 1) > 1e-9 ? ', scaled with k = ' + V.k.toFixed(2) + ').' : ').');
     ['stim', 'cort'].forEach(function (m) {
       var v = fast.res[m][q], e = effect(q, base, v), el = $('t-' + m + '-val');
       el.textContent = (q === 'c50' ? plain(e, 1) : signed(e, 1)) + '%';
@@ -542,6 +569,69 @@
     $('peak-sub').textContent = 'Probe SF giving the largest ' + MEAS[q].short + ' at each eccentricity. The ring is the attended grating.';
   }
 
+  // ---------- 2025 pSFT design ----------
+  var design = null;
+  var DKEYS = ['stim_1', 'stim_0', 'cort_1', 'cort_0'];
+  function dName(key) { return (key.charAt(0) === 's' ? 'Stimulus-based' : 'Cortical-based') + ', attend ' + (key.slice(-1) === '1' ? '2' : '0.5') + ' cpd'; }
+  function renderDesign() {
+    if (!design) return;
+    var D = design, lo = 0, hi = 0, ser = [];
+    DKEYS.forEach(function (key) {
+      var r = D.cond[key];
+      r.peakChange.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; });
+      ser.push({ key: key, name: dName(key), color: COLOR[key.slice(0, 4)], dash: key.slice(-1) === '0' ? '5 4' : null,
+        ecc: D.ecc.map(function (e, i) { return [e, r.peakChange[i]]; }),
+        dist: r.dist.map(function (x, i) { return [x, r.peakChange[i]]; }) });
+    });
+    var span = Math.max(hi - lo, 1), ya = niceAxis(lo - 0.06 * span, hi + 0.06 * span, 5);
+    var Y = { s: sLin(ya.min, ya.max), ticks: ya.ticks, fmt: function (v) { return plain(v, ya.dec); }, title: 'Change in pSFT peak (%)' };
+    drawPlot($('plot-design-ecc'), {
+      height: 240, aria: 'Predicted change in pSFT peak by voxel eccentricity',
+      x: { s: sLin(0, 10), ticks: [0, 2, 4, 6, 8, 10], fmt: function (v) { return String(v); }, title: 'Voxel pRF eccentricity (deg)' },
+      y: Y, zero: true, vlines: [{ x: D.eAtt, label: 'attended eccentricity' }],
+      series: ser.map(function (s) { return { color: s.color, dash: s.dash, pts: s.ecc, name: s.name }; }),
+      hover: {
+        xs: D.ecc,
+        title: function (j) { return 'Voxels at ' + D.ecc[j].toFixed(2) + '° (baseline peak ' + fSF(D.base[j].peak) + ' cpd)'; },
+        rows: function (j) { return ser.map(function (s) { return { color: s.color, label: s.name, value: signed(s.ecc[j][1], 2) + '%' }; }); }
+      }
+    });
+    var dlo = Infinity, dhi = -Infinity;
+    ser.forEach(function (s) { s.dist.forEach(function (p) { if (p[0] < dlo) dlo = p[0]; if (p[0] > dhi) dhi = p[0]; }); });
+    var x0 = Math.floor(dlo * 2) / 2, x1 = Math.ceil(dhi * 2) / 2, xt = [];
+    for (var t = Math.ceil(x0); t <= x1 + 1e-9; t++) xt.push(t);
+    drawPlot($('plot-design-dist'), {
+      height: 240, aria: 'Predicted change in pSFT peak by distance between voxel preference and attended SF',
+      x: { s: sLin(x0, x1), ticks: xt, fmt: function (v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v); }, title: 'Baseline peak relative to attended SF (octaves)' },
+      y: Y, zero: true, vlines: [{ x: 0, label: 'prefers the attended SF' }],
+      series: ser.map(function (s) { return { color: s.color, dash: s.dash, pts: s.dist, name: s.name }; }),
+      hover: {
+        mode: 'nearest',
+        point: function (si, j) {
+          var s = ser[si];
+          return { title: s.name, rows: [
+            { color: s.color, label: 'Voxel eccentricity', value: D.ecc[j].toFixed(2) + '°' },
+            { color: s.color, label: 'Distance from attended SF', value: signed(s.dist[j][0], 2) + ' oct' },
+            { color: s.color, label: 'Change in peak', value: signed(s.dist[j][1], 2) + '%' }
+          ] };
+        }
+      }
+    });
+    var tb = $('design-body'); tb.textContent = '';
+    DKEYS.forEach(function (key) {
+      var r = D.cond[key], tr = document.createElement('tr'), first = document.createElement('td'), sw = document.createElement('i');
+      sw.className = 'key' + (key.slice(-1) === '0' ? ' dash' : ''); sw.style.setProperty('--k', COLOR[key.slice(0, 4)]);
+      first.appendChild(sw); first.appendChild(document.createTextNode(dName(key))); tr.appendChild(first);
+      [signed(r.meanPeakChange, 2) + '%', signed(r.slopeDist, 2), signed(r.slopeEcc, 2), signed(r.meanBwChange, 2) + '%'].forEach(function (txt) {
+        var c = document.createElement('td'); c.textContent = txt; tr.appendChild(c);
+      });
+      tb.appendChild(tr);
+    });
+    $('design-sub').textContent = 'Attend a letter stream filtered around 0.5 or 2 cpd at ' + fDeg(D.eAtt) + (Math.abs(D.eAtt - 3.5) > 1e-9 ? ' (the study used 3.5°)' : '') +
+      '. In the other hemifield, model voxels from 0.16° to 9.8° measure pSFT with 40 full-field stimuli from 0.1 to 12 cpd at ' + fPct(V.dc) +
+      ' contrast; each tuning curve is fitted with a log-Gaussian and compared with the fixation baseline. Attention gain, width, k and the cortical rule come from the controls.';
+  }
+
   // ---------- maps ----------
   var mapState = null;
   function gridSample(arr, e, lf) {
@@ -729,7 +819,7 @@
   function buildCSV() {
     var L = [], st = fast.st, q = S.measure;
     L.push('# FBA normalization model predictions');
-    L.push('# attention: gain ' + V.gain + ', attended ' + V.fAtt.toFixed(3) + ' cpd at ' + V.eAtt + ' deg, SF width ' + V.sigAf + ' oct, cortical rule ' + S.cortRule);
+    L.push('# attention: gain ' + V.gain + ', attended ' + V.fAtt.toFixed(3) + ' cpd at ' + V.eAtt + ' deg, SF width ' + V.sigAf + ' oct, cortical rule ' + S.cortRule + ' with k = ' + V.k);
     L.push('# probe: ' + st.f.toFixed(3) + ' cpd at ' + st.e + ' deg, contrast ' + st.c.toFixed(4) + ', size ' + (st.size >= F.FULL_FIELD ? 'full field' : st.size + ' deg') + ', SF bandwidth ' + st.bw + ' oct');
     L.push('# model: sigma ' + V.sigma + ', n ' + V.n + ', pool ' + V.sigSf + ' oct x ' + V.sigSx + ' mm, unit tuning ' + V.sigT + ' oct, pool pref spread ' + V.sigPop + ' oct, voxel SF bandwidth ' + V.bwFovea + ' oct at fovea to ' + V.bw9 + ' oct at 9 deg (FWHM), e2 ' + V.e2 + ', pref period ' + V.a + 'e+' + V.b);
     L.push(''); L.push('[naka_rushton_fit]'); L.push('condition,c50,rmax,n');
@@ -751,13 +841,22 @@
         L.push([e.toFixed(3), isFinite(peakData.stim[j]) ? peakData.stim[j].toFixed(4) : '', isFinite(peakData.cort[j]) ? peakData.cort[j].toFixed(4) : '', model.ridgeSF('stim', e).toFixed(4), model.ridgeSF('cort', e).toFixed(4), model.prefSF(e).toFixed(4)].join(','));
       });
     }
+    if (design) {
+      L.push(''); L.push('[psft_design_2025, attended at ' + design.eAtt + ' deg, pSFT contrast ' + V.dc.toFixed(3) + ', change in percent]');
+      L.push('ecc_deg,base_peak_cpd,base_fwhm_oct,' + DKEYS.map(function (k) { return 'peak_change_' + k + ',dist_oct_' + k; }).join(','));
+      design.ecc.forEach(function (e, i) {
+        L.push([e.toFixed(3), design.base[i].peak.toFixed(4), design.base[i].fwhm.toFixed(3)].concat(DKEYS.map(function (k) {
+          return design.cond[k].peakChange[i].toFixed(3) + ',' + design.cond[k].dist[i].toFixed(3);
+        })).join(','));
+      });
+    }
     return L.join('\n');
   }
   function refreshData() { if (!$('datapanel').hidden) $('data-text').value = buildCSV(); }
 
   // ---------- MATLAB export ----------
   function matlabCode() {
-    return window.FBAExport.matlab({ P: modelParams(), probe: stim(), measure: S.measure, fullField: F.FULL_FIELD });
+    return window.FBAExport.matlab({ P: modelParams(), probe: stim(), measure: S.measure, fullField: F.FULL_FIELD, designContrast: V.dc });
   }
   function refreshMatlab() { if (!$('mlpanel').hidden) $('ml-text').value = matlabCode(); }
   var saver = null;
@@ -812,15 +911,18 @@
   function request() { if (!raf) raf = requestAnimationFrame(update); }
   function setStale(on) {
     $('card-peak').classList.toggle('stale', on);
+    $('card-design').classList.toggle('stale', on);
     $('card-maps').classList.toggle('stale', on && S.view === 'sweep');
   }
   function runSweep() {
     sweepTimer = 0;
     var t0 = performance.now();
     sweep = computeSweep();
+    design = F.simulatePSFTDesign(modelParams(), { contrast: V.dc });
     lastSweepMs = performance.now() - t0;
     setStale(false);
     renderPeak();
+    renderDesign();
     if (S.view === 'sweep') renderMaps();
     refreshData();
   }
@@ -839,7 +941,7 @@
   }
   function renderAll() {
     if (!fast) return;
-    renderTiles(); renderCRF(); renderTune(); renderPSFT(); renderPeak(); renderMaps();
+    renderTiles(); renderCRF(); renderTune(); renderPSFT(); renderPeak(); renderDesign(); renderMaps();
   }
 
   function init() {
@@ -850,6 +952,11 @@
     bindPanel('ml-toggle', 'mlpanel', 'MATLAB code', 'Hide MATLAB code', refreshMatlab);
     bindCopy('ml-copy', 'ml-text', 'ml-status');
     initMatlab();
+    $('design-preset').addEventListener('click', function () {
+      var set = { eAtt: 3.5, fAtt: 1, psize: 12.5, pc: 0, pbw: 0, dc: 0 };   // fAtt and pc are slider positions (log2 cpd, log10 contrast)
+      CTL.forEach(function (k) { if (k.c.id in set) k.inp.value = set[k.c.id]; });
+      request();
+    });
     var rz = 0;
     if (window.ResizeObserver) new ResizeObserver(function () { clearTimeout(rz); rz = setTimeout(renderAll, 80); }).observe(document.querySelector('.main'));
     function themeChanged() { T = null; renderAll(); }

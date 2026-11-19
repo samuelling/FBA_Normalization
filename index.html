@@ -168,6 +168,14 @@ details.panel > summary:focus-visible { outline: 2px solid var(--stim); outline-
 .tile .tval small { font-size: 13px; font-weight: 400; color: var(--ink-2); letter-spacing: 0; margin-left: 6px; }
 .tile .tsub { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .key { display: inline-block; width: 14px; height: 0; border-top: 3px solid var(--k); border-radius: 2px; flex: none; }
+.key.dash { width: 18px; border-top: 0; height: 3px; border-radius: 0; background: repeating-linear-gradient(90deg, var(--k) 0 5px, transparent 5px 8px); }
+.design-bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 24px; }
+#grp-design { flex: 0 1 320px; min-width: 240px; }
+.design-plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
+.design-plot { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.plot-title { margin: 4px 0 0; font-size: 13px; font-weight: 500; color: var(--ink); }
+#card-design.stale .design-plots, #card-design.stale table { opacity: 0.55; }
+#card-design table.est th { white-space: normal; vertical-align: bottom; }
 
 /* chart cards */
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -233,7 +241,7 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
 }
 @media (max-width: 760px) {
   .app { padding: 20px 16px 40px; }
-  .tiles, .grid2, .maps, .notes { grid-template-columns: minmax(0, 1fr); }
+  .tiles, .grid2, .maps, .notes, .design-plots { grid-template-columns: minmax(0, 1fr); }
   .tile .twhat { min-height: 0; }
   .map-foot, .map-name { padding-left: 0; }
 }
@@ -270,6 +278,8 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
             <label><input type="radio" name="cortRule" id="rule-pref" value="pref"><span>SF preference p(e)</span></label>
           </div>
         </div>
+        <div id="grp-scaling"></div>
+        <p class="hint">Raises the cortical model&rsquo;s rescaling to the power k. At 0 the cortical model is the stimulus-based one; at 1 the rule applies in full; values in between are partial scaling.</p>
       </section>
       <section class="card panel">
         <h2>Probe stimulus</h2>
@@ -422,10 +432,35 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
         </div>
       </section>
 
+      <section class="card chart" id="card-design">
+        <div class="chart-head">
+          <div><h2 class="chart-title">Your 2025 pSFT design: predicted changes</h2><p class="chart-sub" id="design-sub"></p></div>
+          <button type="button" class="btn" id="design-preset">Use the 2025 settings</button>
+        </div>
+        <div class="design-bar">
+          <div id="grp-design"></div>
+          <div class="legend">
+            <span><i class="key" style="--k: var(--stim)"></i>Stimulus-based</span>
+            <span><i class="key" style="--k: var(--cort)"></i>Cortical-based</span>
+            <span><i class="key" style="--k: var(--ink-2)"></i>Attend 2 cpd</span>
+            <span><i class="key dash" style="--k: var(--ink-2)"></i>Attend 0.5 cpd</span>
+          </div>
+        </div>
+        <div class="design-plots">
+          <div class="design-plot"><p class="plot-title">Change in pSFT peak by eccentricity</p><div class="plot" id="plot-design-ecc"></div></div>
+          <div class="design-plot"><p class="plot-title">Change in pSFT peak by distance from the attended SF</p><div class="plot" id="plot-design-dist"></div></div>
+        </div>
+        <table class="est" aria-label="Summary of predicted pSFT changes">
+          <thead><tr><th>Prediction</th><th>Mean peak change</th><th>Slope vs distance (% per octave)</th><th>Slope vs eccentricity (% per deg)</th><th>Mean bandwidth change</th></tr></thead>
+          <tbody id="design-body"></tbody>
+        </table>
+        <p class="chart-sub" id="design-note">Measured in V1 by Ramirez, Wang &amp; Ling (2025): mean peak change &minus;5.65% when attending 0.5 cpd and +2.28% when attending 2 cpd; slopes against distance &minus;9.27 and &minus;10.89 per octave; bandwidth &minus;6.45% and &minus;10.83%. The paper reports an attentional modulation index rather than a percent change, so compare signs and patterns more than sizes. Its pSFT stimuli were bandlimited noise at 100% Michelson contrast, which drives SF-tuned units less than a 100% grating, so lower pSFT contrasts here may be closer to the experiment.</p>
+      </section>
+
       <section class="card notes">
         <h2>What the simulation assumes</h2>
         <p><b>Neural image.</b> Units are laid out by cortical distance along one meridian and by preferred spatial frequency. Receptive fields (1 mm sd) and the suppressive pool have a fixed size in millimetres of cortex, so both grow with eccentricity in degrees. At each eccentricity, preferred frequencies are spread around the local peak p(e).</p>
-        <p><b>Attention fields.</b> Both are spatially global and pass through the attended grating. Stimulus-based puts the gain ridge at the attended cpd at every eccentricity. Cortical-based rescales it, either with cortical magnification (constant cycles per millimetre) or with the local preferred frequency.</p>
+        <p><b>Attention fields.</b> Both are spatially global and pass through the attended grating. Stimulus-based puts the gain ridge at the attended cpd at every eccentricity. Cortical-based rescales it, either with cortical magnification (constant cycles per millimetre) or with the local preferred frequency, raised to the power k: ridge(e) = f<sub>att</sub> &times; ratio(e)<sup>k</sup>.</p>
         <p><b>Measurement.</b> The voxel is a weighted sum of the units at the probe&rsquo;s cortical location. Its weights are a band in SF centred on the local preferred SF. The width of that band is solved at each eccentricity so that the model voxel&rsquo;s SF tuning has the measured bandwidth, by default 3 octaves at the fovea rising to 4.3 at 9&deg; after <a href="https://sites.bu.edu/vision/files/2020/02/AghajariVinkeLing_2020-3.pdf">Aghajari, Vinke &amp; Ling (2020)</a>. That makes the band narrower than the population feeding the suppressive pool, so Rmax can move a little with attention as well as c50. Contrast response is sampled at nine contrasts from 1 to 100% and fitted with a Naka&ndash;Rushton function by least squares; c50, Rmax and n are those estimates.</p>
         <p><b>Defaults.</b> Normalization follows Reynolds &amp; Heeger (2009). M(e) = 17.3 / (e + 0.75) mm/deg after Horton &amp; Hoyt (1991). Preferred period 0.12e + 0.35 deg after <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8934567">Broderick, Simoncelli &amp; Winawer (2022)</a>. &sigma; is scaled so a full-field grating at the preferred frequency has an unattended c50 of &sigma;.</p>
       </section>
@@ -433,8 +468,8 @@ table.est td:first-child { display: flex; align-items: center; gap: 7px; }
   </div>
 </div>
 <div id="tip" role="status" aria-live="off"></div>
-<script src="model.js?v=4"></script>
-<script src="export_matlab.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="model.js?v=5"></script>
+<script src="export_matlab.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

@@ -21,7 +21,9 @@ cortex. For each condition (no attention, stimulus-based, cortical-based):
     R(x, f) = A(x, f) * E(x, f)^n / (S(x, f) + sigma^n)
     S       = suppressive kernel (*) [ density * A * E^n ]
 
-Only the attention field `A` differs between the two models. Both fields are
+Only the attention field `A` differs between the two models. The cortical field's rescaling can be
+partial: ridge(e) = f_att x ratio(e)^k, where ratio(e) follows cortical magnification
+or the local preferred SF, k = 0 is the stimulus-based model and k = 1 the full rule. Both fields are
 spatially global and pass through the attended grating.
 
 The measurement is the population contrast response at an ignored probe: a
@@ -37,6 +39,18 @@ FWHM at the fovea rising linearly to 4.3 at 9 deg, after Aghajari, Vinke & Ling
 (2020). The resulting band (about 0.9 to 1.1 octaves sd) is narrower than the spread
 of preferred SFs feeding the suppressive pool (`sigPop`, 1.5 octaves sd), so Rmax can
 change a little with attention as well as c50.
+
+## The 2025 pSFT design
+
+A panel simulates the design of Ramirez, Wang & Ling (2025, J Neurosci): attend a letter
+stream filtered around 0.5 or 2 cpd at 3.5 deg ("Use the 2025 settings" sets this up),
+and measure each voxel's pSFT in the other hemifield from 0.16 to 9.8 deg with 40
+full-field stimuli from 0.1 to 12 cpd, fitted with a log-Gaussian against a fixation
+baseline. It reports, for each model and attended SF, the percent change in the pSFT peak
+by eccentricity and by the voxel's octave distance from the attended SF, with the mean,
+the slope against distance (negative = attraction), the slope against eccentricity and the
+mean bandwidth change. The pSFT contrast is adjustable: the study's bandlimited noise was
+100% Michelson contrast, which drives SF-tuned units less than a 100% grating.
 
 ## MATLAB export
 
